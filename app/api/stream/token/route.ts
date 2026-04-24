@@ -1,5 +1,6 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
 import {
   getStreamApiKey,
   getStreamChatServerClient,
@@ -24,8 +25,17 @@ function getDisplayName(user: Awaited<ReturnType<typeof currentUser>>) {
   );
 }
 
-export async function GET() {
+function isAlreadyMemberError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return /already (a )?member/i.test(error.message);
+}
+
+export async function GET(request: Request) {
   const { userId } = await auth();
+  const { searchParams } = new URL(request.url);
 
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -49,6 +59,57 @@ export async function GET() {
   };
 
   await upsertStreamUser(streamUser);
+
+  const roomId = searchParams.get("roomId");
+  if (roomId) {
+    const room = await db.room.findUnique({
+      where: {
+        id: roomId,
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    if (!room) {
+      return NextResponse.json({ error: "Room not found." }, { status: 404 });
+    }
+
+    const chatClient = getStreamChatServerClient();
+    const existingChannels = await chatClient.queryChannels(
+      {
+        id: {
+          $eq: room.id,
+        },
+        type: "messaging",
+      },
+      { created_at: -1 },
+      {
+        limit: 1,
+        state: false,
+        watch: false,
+      },
+    );
+
+    if (existingChannels.length === 0) {
+      const roomChannel = chatClient.channel("messaging", room.id, {
+        created_by_id: streamUser.id,
+        members: [streamUser.id],
+        name: room.name,
+      });
+
+      await roomChannel.create();
+    } else {
+      try {
+        await existingChannels[0].addMembers([streamUser.id]);
+      } catch (error) {
+        if (!isAlreadyMemberError(error)) {
+          throw error;
+        }
+      }
+    }
+  }
 
   const [videoToken, chatToken] = await Promise.all([
     Promise.resolve(

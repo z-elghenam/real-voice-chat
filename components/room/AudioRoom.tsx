@@ -29,8 +29,8 @@ type AudioRoomProps = {
   room: Room;
 };
 
-async function getStreamTokens() {
-  const response = await fetch("/api/stream/token", {
+async function getStreamTokens(roomId: string) {
+  const response = await fetch(`/api/stream/token?roomId=${encodeURIComponent(roomId)}`, {
     cache: "no-store",
   });
 
@@ -71,11 +71,11 @@ export function AudioRoom({ room, isHost }: AudioRoomProps) {
         setIsLoading(true);
         setError(null);
 
-        const tokenPayload = await getStreamTokens();
+        const tokenPayload = await getStreamTokens(room.id);
         if (cancelled) return;
 
         const tokenProvider = async () => {
-          const refreshed = await getStreamTokens();
+          const refreshed = await getStreamTokens(room.id);
           return refreshed.videoToken;
         };
 
