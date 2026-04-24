@@ -26,9 +26,12 @@ export async function POST(request: Request) {
   const parsed = createRoomSchema.safeParse(body);
 
   if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
     return NextResponse.json(
       {
-        error: "Please provide a valid room name, description, and participant limit.",
+        error:
+          firstIssue?.message ||
+          "Please provide a valid room name, description, and participant limit.",
       },
       { status: 400 },
     );
